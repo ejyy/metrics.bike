@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Wahoo Activity Tracker</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+                line-height: 1.6;
+            }
+            button {
+                background-color: #0066cc;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+                margin: 10px 0;
+            }
+            button:hover {
+                background-color: #0055aa;
+            }
+            pre {
+                background-color: #f5f5f5;
+                padding: 15px;
+                border-radius: 4px;
+                overflow-x: auto;
+            }
+            .activity {
+                margin-bottom: 20px;
+                padding: 15px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            .hidden {
+                display: none;
+            }
+            #status {
+                margin: 10px 0;
+                padding: 10px;
+                border-radius: 4px;
+            }
+            .error {
+                background-color: #ffebee;
+                color: #c62828;
+            }
+            .success {
+                background-color: #e8f5e9;
+                color: #2e7d32;
+            }
+            .power-data {
+                margin-top: 10px;
+                padding: 10px;
+                background-color: #f0f8ff;
+                border-radius: 4px;
+                max-height: 150px;
+                overflow-y: auto;
+            }
+            .loading {
+                color: #666;
+                font-style: italic;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Wahoo Activity Tracker</h1>
+
+        <div id="login-section">
+            <p>
+                Connect to your Wahoo account to view your 5 most recent
+                activities.
+            </p>
+            <button id="login-button">Connect with Wahoo</button>
+        </div>
+
+        <div id="status" class="hidden"></div>
+
+        <div id="activities-section" class="hidden">
+            <h2>Your Recent Activities</h2>
+            <button id="refresh-button">Refresh Activities</button>
+            <div id="activities-container"></div>
+        </div>
+
+        <script type="module">
+            // PKCE and OAuth Configuration
+            const clientId = "Jm_cbkNKssVAPN9wa0583ZKzdyVnjbVs0Jo9FlZ25vo";
+            const redirectUri =
+                window.location.origin + window.location.pathname;
+            const authEndpoint = "https://api.wahooligan.com/oauth/authorize";
+            const tokenEndpoint = "https://api.wahooligan.com/oauth/token";
+            const apiEndpoint = "https://api.wahooligan.com/v1/workouts";
+            const scope = "user_read workouts_read";
+
+            // DOM Elements
+            const loginButton = document.getElementById("login-button");
+            const refreshButton = document.getElementById("refresh-button");
+            const activitiesSection =
+                document.getElementById("activities-section");
+            const activitiesContainer = document.getElementById(
+                "activities-container",
+            );
+            const statusElement = document.getElementById("status");
+
+            // Helper Functions
+            function base64URLEncode(str) {
+                return btoa(
+                    String.fromCharCode.apply(null, new Uint8Array(str)),
+                )
+                    .replace(/\+/g, "-")
+                    .replace(/\//g, "_")
+                    .replace(/=+$/, "");
+            }
+
+            async function generateCodeVerifier() {
+                const array = new Uint8Array(32);
+                window.crypto.getRandomValues(array);
+                return base64URLEncode(array);
+            }
+
+            async function generateCodeChallenge(codeVerifier) {
+                const encoder = new TextEncoder();
+                const data = encoder.encode(codeVerifier);
+                const digest = await window.crypto.subtle.digest(
+                    "SHA-256",
+                    data,
+                );
+                return base64URLEncode(digest);
+            }
+
+            function showStatus(message, isError = false) {
+                statusElement.textContent = message;
+                statusElement.className = isError ? "error" : "success";
+                statusElement.classList.remove("hidden");
+            }
+
+            function hideStatus() {
+                statusElement.classList.add("hidden");
+            }
+
+            function getFormattedDate(timestamp) {
+                return new Date(timestamp * 1000).toLocaleString();
+            }
+
+            function formatDuration(seconds) {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const remainingSeconds = seconds % 60;
+
+                return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
+            }
+
+            function displayActivities(activities) {
+                activitiesContainer.innerHTML = "";
+
+                if (!activities || activities.length === 0) {
+                    activitiesContainer.innerHTML =
+                        "<p>No activities found.</p>";
+                    return;
+                }
+
+                activities.forEach((activity) => {
+                    const activityElement = document.createElement("div");
+                    activityElement.className = "activity";
+
+                    let activityType = activity.name || "Unknown";
+                    activityType =
+                        activityType.charAt(0).toUpperCase() +
+                        activityType.slice(1);
+
+                    const startDate = activity.starts
+                        ? getFormattedDate(activity.starts)
+                        : "Unknown date";
+                    const duration = activity.minutes
+                        ? formatDuration(activity.minutes)
+                        : "Unknown duration";
+                    const distance = activity.workout_summary.distance_accum
+                        ? (
+                              activity.workout_summary.distance_accum / 1000
+                          ).toFixed(2) + " km"
+                        : "Unknown distance";
+
+                    activityElement.innerHTML = `
+          <h3>${activityType} - ${startDate}</h3>
+          <p><strong>Duration:</strong> ${duration}</p>
+          <p><strong>Distance:</strong> ${distance}</p>
+          ${activity.workout_summary.calories_accum ? `<p><strong>Calories:</strong> ${activity.workout_summary.calories_accum} kcal</p>` : ""}
+          ${activity.workout_summary.heart_rate_avg ? `<p><strong>Avg Heart Rate:</strong> ${activity.workout_summary.heart_rate_avg} bpm</p>` : ""}
+          ${activity.workout_summary.speed_avg ? `<p><strong>Avg Speed:</strong> ${(activity.workout_summary.speed_avg * 3.6).toFixed(1)} km/h</p>` : ""}
+          <div class="power-data" id="power-data-${activity.id}">Loading power data...</div>
+        `;
+
+                    activitiesContainer.appendChild(activityElement);
+
+                    let fitFileUrl = activity.workout_summary.file.url;
+
+                    // Process power data from FIT file
+                    const powerDataElement = document.getElementById(
+                        `power-data-${activity.id}`,
+                    );
+                    processFitFile(fitFileUrl, powerDataElement);
+                });
+            }
+
+            // OAuth and API Functions
+            async function initiateAuth() {
+                try {
+                    // Generate and store PKCE code verifier
+                    const codeVerifier = await generateCodeVerifier();
+                    localStorage.setItem("code_verifier", codeVerifier);
+
+                    // Generate code challenge from verifier
+                    const codeChallenge =
+                        await generateCodeChallenge(codeVerifier);
+
+                    // Build authorization URL
+                    const authUrl = new URL(authEndpoint);
+                    authUrl.searchParams.append("client_id", clientId);
+                    authUrl.searchParams.append("redirect_uri", redirectUri);
+                    authUrl.searchParams.append("response_type", "code");
+                    authUrl.searchParams.append("scope", scope);
+                    authUrl.searchParams.append(
+                        "code_challenge",
+                        codeChallenge,
+                    );
+                    authUrl.searchParams.append(
+                        "code_challenge_method",
+                        "S256",
+                    );
+
+                    // Redirect to Wahoo auth page
+                    window.location.href = authUrl.toString();
+                } catch (error) {
+                    showStatus("Authentication error: " + error.message, true);
+                }
+            }
+
+            async function exchangeCodeForToken(code) {
+                try {
+                    // Get stored code verifier
+                    const codeVerifier = localStorage.getItem("code_verifier");
+                    if (!codeVerifier) {
+                        throw new Error(
+                            "Code verifier not found. Please try again.",
+                        );
+                    }
+
+                    // Prepare token request
+                    const params = new URLSearchParams();
+                    params.append("client_id", clientId);
+                    params.append("grant_type", "authorization_code");
+                    params.append("code", code);
+                    params.append("redirect_uri", redirectUri);
+                    params.append("code_verifier", codeVerifier);
+
+                    // Exchange code for token
+                    const response = await fetch(tokenEndpoint, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                        body: params,
+                    });
+
+                    const responseText = await response.text();
+
+                    if (!response.ok) {
+                        throw new Error(
+                            `Token request failed: ${response.status} ${response.statusText} - ${responseText}`,
+                        );
+                    }
+
+                    const data = JSON.parse(responseText);
+
+                    // Store token data
+                    localStorage.setItem("access_token", data.access_token);
+                    localStorage.setItem("refresh_token", data.refresh_token);
+                    localStorage.setItem(
+                        "token_expiry",
+                        Date.now() + data.expires_in * 1000,
+                    );
+
+                    // Remove code verifier
+                    localStorage.removeItem("code_verifier");
+                    return data.access_token;
+                } catch (error) {
+                    showStatus("Token exchange error: " + error.message, true);
+                    return null;
+                }
+            }
+
+            async function getAccessToken() {
+                const accessToken = localStorage.getItem("access_token");
+                const tokenExpiry = localStorage.getItem("token_expiry");
+
+                // If we have a valid token, return it
+                if (
+                    accessToken &&
+                    tokenExpiry &&
+                    Date.now() < parseInt(tokenExpiry)
+                ) {
+                    return accessToken;
+                }
+
+                // Otherwise, try to refresh
+                const refreshToken = localStorage.getItem("refresh_token");
+                if (!refreshToken) {
+                    return null;
+                }
+
+                try {
+                    const params = new URLSearchParams();
+                    params.append("client_id", clientId);
+                    params.append("grant_type", "refresh_token");
+                    params.append("refresh_token", refreshToken);
+
+                    const response = await fetch(tokenEndpoint, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                        body: params,
+                    });
+
+                    const responseText = await response.text();
+
+                    if (!response.ok) {
+                        throw new Error(
+                            `Token refresh failed: ${response.status} ${response.statusText} - ${responseText}`,
+                        );
+                    }
+
+                    const data = JSON.parse(responseText);
+
+                    localStorage.setItem("access_token", data.access_token);
+                    localStorage.setItem("refresh_token", data.refresh_token);
+                    localStorage.setItem(
+                        "token_expiry",
+                        Date.now() + data.expires_in * 1000,
+                    );
+
+                    return data.access_token;
+                } catch (error) {
+                    return null;
+                }
+            }
+
+            // Import fit-decoder at the top of your script section
+            import fitDecoder from "https://cdn.jsdelivr.net/npm/fit-decoder/+esm";
+
+            // Process FIT file from URL
+            async function processFitFile(url, powerDataElement) {
+                if (!url) {
+                    powerDataElement.innerHTML = "No FIT file URL available";
+                    return;
+                }
+
+                try {
+                    // If not cached, download and process
+                    powerDataElement.innerHTML =
+                        '<span class="loading">Loading power data...</span>';
+
+                    const response = await fetch(url);
+
+                    if (!response.ok) {
+                        throw new Error(
+                            `Failed to fetch FIT file: ${response.status} ${response.statusText}`,
+                        );
+                    }
+
+                    const arrayBuffer = await response.arrayBuffer();
+                    const jsonRaw = fitDecoder.fit2json(arrayBuffer);
+                    const json = await fitDecoder.parseRecords(jsonRaw);
+                    const powerArray = fitDecoder.getRecordFieldValue(
+                        json,
+                        "record",
+                        "power",
+                    );
+
+                    // Display power data
+                    displayPowerData(powerArray, powerDataElement);
+                } catch (error) {
+                    powerDataElement.innerHTML = `<span class="error">Error processing power data: ${error.message}</span>`;
+                }
+            }
+
+            function displayPowerData(powerArray, element) {
+                if (!powerArray || powerArray.length === 0) {
+                    element.innerHTML = "No power data available";
+                    return;
+                }
+
+                // Display raw watts as requested
+                element.innerHTML = `<div>Power (watts): ${powerArray.join(", ")}</div>`;
+            }
+
+            async function fetchActivities() {
+                try {
+                    const token = await getAccessToken();
+
+                    if (!token) {
+                        showStatus(
+                            "Not authenticated. Please log in again.",
+                            true,
+                        );
+                        activitiesSection.classList.add("hidden");
+                        document
+                            .getElementById("login-section")
+                            .classList.remove("hidden");
+                        return;
+                    }
+
+                    showStatus("Fetching your activities...");
+
+                    const response = await fetch(`${apiEndpoint}?per_page=5`, {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                        },
+                    });
+
+                    const responseText = await response.text();
+
+                    if (!response.ok) {
+                        throw new Error(
+                            `API request failed: ${response.status} ${response.statusText} - ${responseText}`,
+                        );
+                    }
+
+                    let data;
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (e) {
+                        throw new Error(
+                            `Failed to parse API response: ${e.message}`,
+                        );
+                    }
+
+                    // Check different possible response formats
+                    const activities = data.items || data.workouts || data;
+                    if (Array.isArray(activities)) {
+                        displayActivities(activities);
+                    } else {
+                        throw new Error(
+                            `Unexpected API response format: ${JSON.stringify(data)}`,
+                        );
+                    }
+
+                    hideStatus();
+                    activitiesSection.classList.remove("hidden");
+                } catch (error) {
+                    showStatus(
+                        "Failed to fetch activities: " + error.message,
+                        true,
+                    );
+                }
+            }
+
+            // Event Listeners and Initialization
+            loginButton.addEventListener("click", initiateAuth);
+            refreshButton.addEventListener("click", fetchActivities);
+
+            // Handle OAuth redirect with auth code
+            async function handleAuthRedirect() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get("code");
+                const error = urlParams.get("error");
+
+                // Clean the URL
+                const cleanUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, cleanUrl);
+
+                if (error) {
+                    showStatus(`Authorization error: ${error}`, true);
+                    return;
+                }
+
+                if (code) {
+                    showStatus(
+                        "Authentication successful, getting access token...",
+                    );
+
+                    const token = await exchangeCodeForToken(code);
+                    if (token) {
+                        document
+                            .getElementById("login-section")
+                            .classList.add("hidden");
+                        await fetchActivities();
+                    }
+                } else {
+                    // Check if already authenticated
+                    const token = await getAccessToken();
+                    if (token) {
+                        document
+                            .getElementById("login-section")
+                            .classList.add("hidden");
+                        await fetchActivities();
+                    }
+                }
+            }
+
+            // Initialize the application
+            window.addEventListener("load", handleAuthRedirect);
+        </script>
+    </body>
+</html>
