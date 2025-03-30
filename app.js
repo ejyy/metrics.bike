@@ -27,7 +27,7 @@ function hideStatus() {
 }
 
 function formatDate(timestamp) {
-  return new Date(timestamp * 1000).toLocaleString();
+  return new Date(timestamp).toLocaleString();
 }
 
 function formatDuration(seconds) {
