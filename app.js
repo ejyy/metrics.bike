@@ -135,6 +135,8 @@ function displayActivities(activities) {
     const activityElement = document.createElement("div");
     activityElement.className = "activity";
 
+    console.log(activity);
+
     const activityName = activity.name
       ? activity.name.charAt(0).toUpperCase() + activity.name.slice(1)
       : "Unknown";
