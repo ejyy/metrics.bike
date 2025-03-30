@@ -131,8 +131,6 @@ function displayActivities(activities) {
     return;
   }
 
-  console.log(activities);
-
   activities.forEach((activity) => {
     const activityElement = document.createElement("div");
     activityElement.className = "activity";
