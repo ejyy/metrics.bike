@@ -143,6 +143,7 @@ async function fetchActivities() {
 
     showStatus("Fetching your activities...");
 
+    // First, fetch the list of workouts
     const response = await fetch(`${apiEndpoint}?per_page=${numActivities}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -161,24 +162,44 @@ async function fetchActivities() {
     // Process activities and filter cycling with power
     const processedActivities = [];
 
+    // For each activity, fetch its workout summary to get the FIT file URL
     for (const activity of activities) {
-      const fitFileUrl = activity.workout_summary?.file?.url;
-      if (!fitFileUrl) continue;
+      try {
+        // Fetch the workout summary for this activity
+        const summaryResponse = await fetch(`${apiEndpoint}/${activity.id}/workout_summary`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (!summaryResponse.ok) {
+          console.warn(`Failed to fetch summary for workout ${activity.id}: ${summaryResponse.status}`);
+          continue;
+        }
+        
+        const summaryData = await summaryResponse.json();
+        const fitFileUrl = summaryData.file?.url;
+        
+        if (!fitFileUrl) continue;
 
-      const powerArray = await parsePowerData(fitFileUrl);
-      if (!powerArray || powerArray.length === 0) continue;
+        const powerArray = await parsePowerData(fitFileUrl);
+        if (!powerArray || powerArray.length === 0) continue;
 
-      const avgWatts = calculateAvgWatts(powerArray);
-      const normalizedPower = calculateNormalizedPower(powerArray);
-      const bestEfforts = calculateBestEfforts(powerArray);
-      
-      if (!avgWatts) continue;
-      processedActivities.push({
-        ...activity,
-        avgWatts,
-        normalizedPower,
-        bestEfforts
-      });
+        const avgWatts = calculateAvgWatts(powerArray);
+        const normalizedPower = calculateNormalizedPower(powerArray);
+        const bestEfforts = calculateBestEfforts(powerArray);
+        
+        if (!avgWatts) continue;
+        
+        // Merge the activity data with the summary data
+        processedActivities.push({
+          ...activity,
+          workout_summary: summaryData,
+          avgWatts,
+          normalizedPower,
+          bestEfforts
+        });
+      } catch (error) {
+        console.error(`Error processing activity ${activity.id}:`, error);
+      }
     }
 
     // Display activities
