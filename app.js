@@ -169,15 +169,12 @@ async function fetchActivities() {
         const summaryResponse = await fetch(`${apiEndpoint}/${activity.id}/workout_summary`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        
-        if (!summaryResponse.ok) {
-          console.warn(`Failed to fetch summary for workout ${activity.id}: ${summaryResponse.status}`);
-          continue;
-        }
-        
+
+        if (!summaryResponse.ok) continue;
+
         const summaryData = await summaryResponse.json();
         const fitFileUrl = summaryData.file?.url;
-        
+
         if (!fitFileUrl) continue;
 
         const powerArray = await parsePowerData(fitFileUrl);
